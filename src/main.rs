@@ -1,9 +1,6 @@
 mod ical;
 
-use actix_web::{
-    web::{self, Data},
-    App, HttpResponse, HttpServer, Responder,
-};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use ical::EventFilter;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -15,7 +12,6 @@ const CALENDARS_REG: &'static str = r"\d+(?:,\d+)*";
 #[derive(Deserialize)]
 struct Config {
     listen: std::net::SocketAddrV4,
-    nb_weeks: u8,
 }
 
 #[derive(Deserialize)]
@@ -26,6 +22,7 @@ struct CalQuery {
     tags: Option<String>,
     all: Option<bool>,
     calendars: String,
+    nb_weeks: u8,
 }
 
 #[derive(Serialize)]
@@ -54,7 +51,7 @@ macro_rules! query_parse {
     };
 }
 
-async fn index(config: web::Data<u8>, query: web::Query<CalQuery>) -> impl Responder {
+async fn index(query: web::Query<CalQuery>) -> impl Responder {
     if !Regex::new(CALENDARS_REG)
         .unwrap()
         .is_match(&query.calendars)
@@ -82,7 +79,7 @@ async fn index(config: web::Data<u8>, query: web::Query<CalQuery>) -> impl Respo
             ("resources", query.calendars.as_str()),
             ("calType", "ical"),
             ("projectId", "0"),
-            ("nbWeeks", &config.to_string()),
+            ("nbWeeks", &query.nb_weeks.to_string()),
         ])
         .send()
         .await
@@ -112,12 +109,8 @@ async fn index(config: web::Data<u8>, query: web::Query<CalQuery>) -> impl Respo
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let config: Config = serde_json::from_str(&std::fs::read_to_string("config.json")?)?;
-    HttpServer::new(move || {
-        App::new()
-            .app_data(Data::new(config.nb_weeks))
-            .route("/", web::get().to(index))
-    })
-    .bind(config.listen)?
-    .run()
-    .await
+    HttpServer::new(move || App::new().route("/", web::get().to(index)))
+        .bind(config.listen)?
+        .run()
+        .await
 }
