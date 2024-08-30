@@ -10,6 +10,12 @@ const URL: &'static str =
 const CALENDARS_REG: &'static str = r"\d+(?:,\d+)*";
 
 #[derive(Deserialize)]
+struct Config {
+    listen: std::net::SocketAddrV4,
+    nb_weeks: u8,
+}
+
+#[derive(Deserialize)]
 struct CalQuery {
     summary: Option<String>,
     location: Option<String>,
@@ -45,7 +51,7 @@ macro_rules! query_parse {
     };
 }
 
-async fn index(query: web::Query<CalQuery>) -> impl Responder {
+async fn index(config: web::Data<u8>, query: web::Query<CalQuery>) -> impl Responder {
     if !Regex::new(CALENDARS_REG)
         .unwrap()
         .is_match(&query.calendars)
@@ -73,7 +79,7 @@ async fn index(query: web::Query<CalQuery>) -> impl Responder {
             ("resources", query.calendars.as_str()),
             ("calType", "ical"),
             ("projectId", "0"),
-            ("nbWeeks", "48"),
+            ("nbWeeks", &config.to_string()),
         ])
         .send()
         .await
@@ -102,8 +108,13 @@ async fn index(query: web::Query<CalQuery>) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| App::new().route("/", web::get().to(index)))
-        .bind("127.0.0.1:8080")?
-        .run()
-        .await
+    let config: Config = serde_json::from_str(&std::fs::read_to_string("config.json")?)?;
+    HttpServer::new(move || {
+        App::new()
+            .app_data(config.nb_weeks)
+            .route("/", web::get().to(index))
+    })
+    .bind(config.listen)?
+    .run()
+    .await
 }
