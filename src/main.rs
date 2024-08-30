@@ -1,6 +1,9 @@
 mod ical;
 
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{
+    web::{self, Data},
+    App, HttpResponse, HttpServer, Responder,
+};
 use ical::EventFilter;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -111,7 +114,7 @@ async fn main() -> std::io::Result<()> {
     let config: Config = serde_json::from_str(&std::fs::read_to_string("config.json")?)?;
     HttpServer::new(move || {
         App::new()
-            .app_data(config.nb_weeks)
+            .app_data(Data::new(config.nb_weeks))
             .route("/", web::get().to(index))
     })
     .bind(config.listen)?
