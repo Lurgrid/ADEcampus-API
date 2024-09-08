@@ -1,13 +1,15 @@
 mod ical;
 
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_cors::Cors;
+use actix_web::{http::header, web, App, HttpResponse, HttpServer, Responder};
 use ical::EventFilter;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-const URL: &'static str =
-    "https://adecampus.univ-rouen.fr/jsp/custom/modules/plannings/anonymous_cal.jsp";
+const PATH: &'static str = "/jsp/custom/modules/plannings/anonymous_cal.jsp";
 const CALENDARS_REG: &'static str = r"\d+(?:,\d+)*";
+const HOST_REG: &'static str =
+    r"^((?:(?:[a-zA-Z0-9-_]+\.)+[a-zA-Z]{2,})|(?:\d{1,3}\.){3}\d{1,3}|\[(?:[a-fA-F0-9:]+)\])$";
 
 #[derive(Deserialize)]
 struct Config {
@@ -21,6 +23,7 @@ struct CalQuery {
     teacher: Option<String>,
     tags: Option<String>,
     all: Option<bool>,
+    host: String,
     calendars: String,
     nb_weeks: u8,
 }
@@ -60,6 +63,11 @@ async fn index(query: web::Query<CalQuery>) -> impl Responder {
             error: "Invalid format for calendar id list".to_owned(),
         });
     }
+    if !Regex::new(HOST_REG).unwrap().is_match(&query.host) {
+        return HttpResponse::BadRequest().json(APIError {
+            error: "Invalid format for host".to_owned(),
+        });
+    }
     query_parse!(query, summary, summary_reg);
     query_parse!(query, location, location_reg);
     query_parse!(query, teacher, location_reg);
@@ -74,7 +82,7 @@ async fn index(query: web::Query<CalQuery>) -> impl Responder {
     };
     let client = reqwest::Client::new();
     let res = match client
-        .get(URL)
+        .get(format!("https://{}{}", query.host, PATH))
         .query(&[
             ("resources", query.calendars.as_str()),
             ("calType", "ical"),
@@ -109,8 +117,19 @@ async fn index(query: web::Query<CalQuery>) -> impl Responder {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let config: Config = serde_json::from_str(&std::fs::read_to_string("config.json")?)?;
-    HttpServer::new(move || App::new().route("/", web::get().to(index)))
-        .bind(config.listen)?
-        .run()
-        .await
+    HttpServer::new(move || {
+        App::new()
+            .wrap({
+                Cors::default()
+                    .allow_any_origin()
+                    .allowed_methods(vec!["GET", "POST"])
+                    .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
+                    .allowed_header(header::CONTENT_TYPE)
+                    .max_age(3600)
+            })
+            .route("/", web::get().to(index))
+    })
+    .bind(config.listen)?
+    .run()
+    .await
 }
