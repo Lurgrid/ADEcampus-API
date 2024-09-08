@@ -26,6 +26,7 @@ struct CalQuery {
     host: String,
     calendars: String,
     nb_weeks: u8,
+    project_id: u8,
 }
 
 #[derive(Serialize)]
@@ -54,7 +55,15 @@ macro_rules! query_parse {
     };
 }
 
-async fn index(query: web::Query<CalQuery>) -> impl Responder {
+async fn index(query: actix_web::Result<web::Query<CalQuery>>) -> impl Responder {
+    let query = match query {
+        Ok(query) => query,
+        Err(err) => {
+            return HttpResponse::BadRequest().json(APIError {
+                error: err.to_string(),
+            });
+        }
+    };
     if !Regex::new(CALENDARS_REG)
         .unwrap()
         .is_match(&query.calendars)
@@ -86,7 +95,7 @@ async fn index(query: web::Query<CalQuery>) -> impl Responder {
         .query(&[
             ("resources", query.calendars.as_str()),
             ("calType", "ical"),
-            ("projectId", "0"),
+            ("projectId", &query.project_id.to_string()),
             ("nbWeeks", &query.nb_weeks.to_string()),
         ])
         .send()
